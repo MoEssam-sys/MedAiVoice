@@ -1,0 +1,1448 @@
+﻿@page "/"
+
+@rendermode InteractiveServer
+
+@using AiVoice.Models
+@using Microsoft.AspNetCore.Components.Forms
+
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+@implements IAsyncDisposable
+
+
+<MudContainer MaxWidth="MaxWidth.Large"
+              Class="medical-container">
+
+
+    <!-- ==================================================== -->
+    <!-- HEADER                                               -->
+    <!-- ==================================================== -->
+
+    <MudPaper Elevation="0"
+              Class="medical-header">
+
+        <div class="header-icon">
+
+            <MudIcon Icon="@Icons.Material.Filled.Mic"
+                     Size="Size.Large"
+                     Color="Color.Primary" />
+
+        </div>
+
+
+        <div>
+
+            <MudText Typo="Typo.h4">
+                AI Medical Conversation
+            </MudText>
+
+
+            <MudText Typo="Typo.body1"
+                     Color="Color.Secondary">
+
+                Record one conversation between
+                doctor and patient.
+
+            </MudText>
+
+        </div>
+
+    </MudPaper>
+
+
+    <!-- ==================================================== -->
+    <!-- INPUT CARD                                           -->
+    <!-- ==================================================== -->
+
+    <MudPaper Elevation="2"
+              Class="input-card">
+
+
+        <MudGrid>
+
+
+            <!-- Recording -->
+
+            <MudItem xs="12"
+                     md="8">
+
+                <div class="record-actions">
+
+                    @if (!_isRecording)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Size="Size.Large"
+                                   StartIcon="@Icons.Material.Filled.Mic"
+                                   Disabled="_isBusy"
+                                   OnClick="StartRecording">
+
+                            Start Conversation
+
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Error"
+                                   Size="Size.Large"
+                                   StartIcon="@Icons.Material.Filled.Stop"
+                                   OnClick="StopRecording">
+
+                            Stop & Analyze
+
+                        </MudButton>
+
+
+                        <div class="recording-indicator">
+
+                            <span class="record-dot"></span>
+
+                            Recording...
+
+                        </div>
+                    }
+
+                </div>
+
+            </MudItem>
+
+        </MudGrid>
+
+
+        <div class="upload-divider">
+
+            <span>
+                OR UPLOAD EXISTING CONVERSATION
+            </span>
+
+        </div>
+
+
+        <div class="upload-row">
+
+            <InputFile id="medicalAudioInput"
+                       OnChange="OnAudioFileSelected"
+                       accept=".webm,.mp3,.wav,.m4a,.mp4,.ogg,.flac,.mpeg,.mpga" />
+
+
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.UploadFile"
+                       Disabled="@(
+                       _isBusy ||
+                       _isRecording ||
+                       !_hasSelectedFile)"
+                       OnClick="ProcessUploadedFile">
+
+                Analyze File
+
+            </MudButton>
+
+        </div>
+
+
+        @if (!string.IsNullOrWhiteSpace(
+                _selectedFileName))
+        {
+            <MudText Typo="Typo.caption"
+                     Color="Color.Secondary"
+                     Class="mt-2">
+
+                Selected:
+                @_selectedFileName
+
+            </MudText>
+        }
+
+
+        <!-- Processing -->
+        @if (_isBusy)
+        {
+            <div class="processing-box">
+
+                <MudProgressLinear Indeterminate="true"
+                                   Color="Color.Primary"
+                                   Rounded="true" />
+
+
+                <MudText Typo="Typo.body2"
+                         Class="mt-3">
+
+                    Separating speakers, transcribing,
+                    coding and creating the summary...
+
+                </MudText>
+
+            </div>
+        }
+
+
+        <!-- Error -->
+        @if (!string.IsNullOrWhiteSpace(
+                        _error))
+        {
+            <MudAlert Severity="Severity.Error"
+                      Class="mt-4">
+
+                @_error
+
+            </MudAlert>
+        }
+
+    </MudPaper>
+
+
+    @if (_result != null)
+    {
+
+        <!-- ================================================= -->
+        <!-- SESSION OVERVIEW                                  -->
+        <!-- ================================================= -->
+
+        <div class="overview-grid">
+
+
+            <MudPaper Elevation="1"
+                      Class="overview-item">
+
+                <MudIcon Icon="@Icons.Material.Filled.MedicalServices"
+                         Color="Color.Primary" />
+
+                <div>
+
+                    <MudText Typo="Typo.caption"
+                             Color="Color.Secondary">
+
+                        Doctor Speaker
+
+                    </MudText>
+
+
+                    <MudText Typo="Typo.h6">
+
+                        Speaker @_result.DoctorSpeakerLabel
+
+                    </MudText>
+
+                </div>
+
+            </MudPaper>
+
+
+            <MudPaper Elevation="1"
+                      Class="overview-item">
+
+                <MudIcon Icon="@Icons.Material.Filled.Person"
+                         Color="Color.Secondary" />
+
+                <div>
+
+                    <MudText Typo="Typo.caption"
+                             Color="Color.Secondary">
+
+                        Patient Speaker
+
+                    </MudText>
+
+
+                    <MudText Typo="Typo.h6">
+
+                        Speaker @_result.PatientSpeakerLabel
+
+                    </MudText>
+
+                </div>
+
+            </MudPaper>
+
+
+            <MudPaper Elevation="1"
+                      Class="overview-item">
+
+                <MudIcon Icon="@Icons.Material.Filled.Verified"
+                         Color="Color.Success" />
+
+                <div>
+
+                    <MudText Typo="Typo.caption"
+                             Color="Color.Secondary">
+
+                        Speaker Confidence
+
+                    </MudText>
+
+
+                    <MudText Typo="Typo.h6">
+
+                        @($"{_result.SpeakerMappingConfidence:P0}")
+
+                    </MudText>
+
+                </div>
+
+            </MudPaper>
+
+        </div>
+
+
+        <!-- ================================================= -->
+        <!-- CHAT                                              -->
+        <!-- ================================================= -->
+
+        <MudPaper Elevation="2"
+                  Class="result-section">
+
+
+            <div class="section-header">
+
+                <div class="section-header-title">
+
+                    <MudIcon Icon="@Icons.Material.Filled.Forum"
+                             Color="Color.Primary" />
+
+
+                    <MudText Typo="Typo.h5">
+
+                        Conversation
+
+                    </MudText>
+
+                </div>
+
+
+                <!-- مهم جدًا:
+                     لو الـAI قلب الشخصين
+                     ضغطة واحدة تصلح كل حاجة -->
+
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.SwapHoriz"
+                           OnClick="SwapDoctorPatient">
+
+                    Swap Doctor / Patient
+
+                </MudButton>
+
+            </div>
+
+
+            <div class="chat-area">
+
+                @foreach (
+                    ConversationMessage message
+                    in _result.Conversation)
+                {
+                    <div class="@GetChatRowClass(
+                                                            message.SpeakerRole)">
+
+
+                        <!-- Avatar -->
+
+                        <MudAvatar Color="@GetSpeakerColor(
+                                                                        message.SpeakerRole)"
+                                   Size="Size.Medium">
+
+                            <MudIcon Icon="@GetSpeakerIcon(
+                                                                            message.SpeakerRole)" />
+
+                        </MudAvatar>
+
+
+                        <!-- Bubble -->
+
+                        <div class="@GetBubbleClass(
+                                                                    message.SpeakerRole)">
+
+
+                            <div class="message-header">
+
+                                <strong>
+
+                                    @message.SpeakerRole
+
+                                </strong>
+
+
+                                <span>
+
+                                    @FormatTime(
+                                        message.StartSeconds)
+
+                                </span>
+
+                            </div>
+
+
+                            <div class="english-message">
+
+                                @message.EnglishText
+
+                            </div>
+
+
+                            @if (!string.Equals(
+                                    message.EnglishText,
+                                    message.OriginalText,
+                                    StringComparison.OrdinalIgnoreCase))
+                            {
+                                <div class="original-message">
+
+                                    @message.OriginalText
+
+                                </div>
+                            }
+
+                        </div>
+
+                    </div>
+                }
+
+            </div>
+
+        </MudPaper>
+
+
+        <!-- ================================================= -->
+        <!-- DIAGNOSIS                                         -->
+        <!-- ================================================= -->
+
+        <MudPaper Elevation="2"
+                  Class="result-section">
+
+
+            <div class="section-header-title">
+
+                <MudIcon Icon="@Icons.Material.Filled.HealthAndSafety"
+                         Color="Color.Error" />
+
+
+                <MudText Typo="Typo.h5">
+
+                    Diagnosis & ICD-10
+
+                </MudText>
+
+            </div>
+
+
+            @if (_result.Diagnoses.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info"
+                          Variant="Variant.Outlined"
+                          Class="mt-4">
+
+                    No diagnosis was explicitly documented
+                    by the doctor.
+
+                </MudAlert>
+            }
+            else
+            {
+                <div class="diagnosis-list">
+
+                    @foreach (
+                        DiagnosisResult diagnosis
+                        in _result.Diagnoses)
+                    {
+                        <MudPaper Outlined="true"
+                                  Class="diagnosis-card">
+
+
+                            <div class="diagnosis-top">
+
+
+                                <div class="diagnosis-name">
+
+                                    <MudText Typo="Typo.h5">
+
+                                        @diagnosis.DiagnosisName
+
+                                    </MudText>
+
+
+                                    <MudChip T="string"
+                                             Color="@GetStatusColor(
+                                                                                                diagnosis.Status)"
+                                             Variant="Variant.Filled"
+                                             Size="Size.Small">
+
+                                        @diagnosis.Status
+
+                                    </MudChip>
+
+                                </div>
+
+
+                                <div class="confidence">
+
+                                    <MudText Typo="Typo.caption"
+                                             Color="Color.Secondary">
+
+                                        Confidence
+
+                                    </MudText>
+
+
+                                    <strong>
+
+                                        @($"{diagnosis.Confidence:P0}")
+
+                                    </strong>
+
+                                </div>
+
+                            </div>
+
+
+                            <!-- ICD -->
+
+                            <MudGrid Class="mt-4">
+
+
+                                <MudItem xs="12"
+                                         md="4">
+
+                                    <div class="icd-code-box">
+
+                                        <span class="field-label">
+
+                                            ICD-10 CODE
+
+                                        </span>
+
+
+                                        <!-- Editable -->
+
+                                        <MudTextField T="string"
+                                                      @bind-Value="diagnosis.Icd10Code"
+                                                      Variant="Variant.Outlined"
+                                                      Margin="Margin.Dense"
+                                                      Immediate="true" />
+
+                                    </div>
+
+                                </MudItem>
+
+
+                                <MudItem xs="12"
+                                         md="8">
+
+                                    <div class="icd-name-box">
+
+                                        <span class="field-label">
+
+                                            ICD-10 NAME
+
+                                        </span>
+
+
+                                        <MudTextField T="string"
+                                                      @bind-Value="diagnosis.Icd10Name"
+                                                      Variant="Variant.Outlined"
+                                                      Margin="Margin.Dense"
+                                                      Immediate="true" />
+
+                                    </div>
+
+                                </MudItem>
+
+
+                                <MudItem xs="12">
+
+                                    <span class="field-label">
+
+                                        DIAGNOSIS
+
+                                    </span>
+
+
+                                    <MudTextField T="string"
+                                                  @bind-Value="diagnosis.DiagnosisName"
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Immediate="true" />
+
+                                </MudItem>
+
+                            </MudGrid>
+
+
+                            <!-- Evidence -->
+
+                            <div class="evidence-box">
+
+                                <MudIcon Icon="@Icons.Material.Filled.FormatQuote"
+                                         Size="Size.Small" />
+
+
+                                <div>
+
+                                    <span class="field-label">
+
+                                        DOCTOR EVIDENCE
+
+                                    </span>
+
+
+                                    <div>
+
+                                        @diagnosis.Evidence
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+
+                            <MudAlert Severity="Severity.Warning"
+                                      Variant="Variant.Outlined"
+                                      Dense="true"
+                                      Class="mt-3">
+
+                                ICD-10 is AI-suggested.
+                                Review before saving to the
+                                patient's medical record.
+
+                            </MudAlert>
+
+                        </MudPaper>
+                    }
+
+                </div>
+            }
+
+        </MudPaper>
+
+
+        <!-- ================================================= -->
+        <!-- SUMMARY                                           -->
+        <!-- ================================================= -->
+
+        <MudPaper Elevation="2"
+                  Class="result-section summary-section">
+
+
+            <div class="section-header-title">
+
+                <MudIcon Icon="@Icons.Material.Filled.Summarize"
+                         Color="Color.Primary" />
+
+
+                <MudText Typo="Typo.h5">
+
+                    Clinical Summary
+
+                </MudText>
+
+            </div>
+
+
+            <!-- Editable -->
+
+            <MudTextField T="string"
+                          @bind-Value="_result.Summary"
+                          Variant="Variant.Outlined"
+                          Lines="6"
+                          FullWidth="true"
+                          Immediate="true"
+                          Class="mt-4" />
+
+        </MudPaper>
+
+
+        <!-- ================================================= -->
+        <!-- RAW                                               -->
+        <!-- ================================================= -->
+
+        <MudExpansionPanels Class="mb-6">
+
+            <MudExpansionPanel Text="Raw Transcript">
+
+                <MudText Typo="Typo.body2"
+                         Class="pa-4 raw-text">
+
+                    @_result.RawTranscript
+
+                </MudText>
+
+            </MudExpansionPanel>
+
+        </MudExpansionPanels>
+    }
+
+</MudContainer>
+
+
+<style>
+
+    .medical-container {
+        padding-top: 32px;
+        padding-bottom: 60px;
+    }
+
+
+    .medical-header {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 8px 4px 26px 4px;
+    }
+
+
+    .header-icon {
+        width: 58px;
+        height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        background: var(--mud-palette-primary-hover);
+    }
+
+
+    .input-card {
+        padding: 26px;
+        border-radius: 18px;
+        margin-bottom: 24px;
+    }
+
+
+    .record-actions {
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+
+    .recording-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+    }
+
+
+    .record-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #e53935;
+        animation: recordingPulse 1.3s infinite;
+    }
+
+
+    @@keyframes recordingPulse {
+
+        0% {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        50% {
+            opacity: .35;
+            transform: scale(1.45);
+        }
+
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+
+    .upload-divider {
+        display: flex;
+        align-items: center;
+        margin: 28px 0 18px;
+        color: var(--mud-palette-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+
+        .upload-divider::before,
+        .upload-divider::after {
+            content: "";
+            height: 1px;
+            flex: 1;
+            background: var(--mud-palette-lines-default);
+        }
+
+
+        .upload-divider span {
+            padding: 0 15px;
+        }
+
+
+    .upload-row {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex-wrap: wrap;
+    }
+
+
+    .processing-box {
+        margin-top: 24px;
+        padding: 18px;
+        border-radius: 12px;
+        background: var(--mud-palette-background-gray);
+    }
+
+
+    /* ====================================================== */
+    /* Overview                                               */
+    /* ====================================================== */
+
+    .overview-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+
+
+    .overview-item {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 18px;
+        border-radius: 14px;
+    }
+
+
+    /* ====================================================== */
+    /* Result                                                 */
+    /* ====================================================== */
+
+    .result-section {
+        padding: 26px;
+        border-radius: 18px;
+        margin-bottom: 22px;
+    }
+
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+
+    .section-header-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+
+    /* ====================================================== */
+    /* Chat                                                   */
+    /* ====================================================== */
+
+    .chat-area {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        margin-top: 24px;
+    }
+
+
+    .chat-row-doctor,
+    .chat-row-patient,
+    .chat-row-unknown {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+    }
+
+
+    .chat-row-doctor {
+        flex-direction: row-reverse;
+    }
+
+
+    .chat-row-patient {
+        flex-direction: row;
+    }
+
+
+    .chat-row-unknown {
+        justify-content: center;
+    }
+
+
+    .chat-bubble {
+        max-width: 72%;
+        padding: 14px 17px;
+        border-radius: 17px;
+        border: 1px solid var(--mud-palette-lines-default);
+        box-shadow: 0 2px 6px rgba(0,0,0,.04);
+    }
+
+
+    .chat-bubble-doctor {
+        background: var(--mud-palette-primary-hover);
+        border-bottom-right-radius: 4px;
+    }
+
+
+    .chat-bubble-patient {
+        background: var(--mud-palette-background-gray);
+        border-bottom-left-radius: 4px;
+    }
+
+
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 25px;
+        margin-bottom: 7px;
+        font-size: 13px;
+    }
+
+
+        .message-header span {
+            opacity: .55;
+        }
+
+
+    .english-message {
+        font-size: 15px;
+        line-height: 1.65;
+    }
+
+
+    .original-message {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--mud-palette-lines-default);
+        opacity: .7;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+
+
+    /* ====================================================== */
+    /* Diagnosis                                              */
+    /* ====================================================== */
+
+    .diagnosis-list {
+        margin-top: 22px;
+    }
+
+
+    .diagnosis-card {
+        padding: 22px;
+        border-radius: 15px;
+        margin-bottom: 18px;
+    }
+
+
+    .diagnosis-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+    }
+
+
+    .diagnosis-name {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+
+    .confidence {
+        min-width: 85px;
+        text-align: right;
+    }
+
+
+    .field-label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .5px;
+        color: var(--mud-palette-text-secondary);
+    }
+
+
+    .icd-code-box,
+    .icd-name-box {
+        height: 100%;
+    }
+
+
+    .evidence-box {
+        display: flex;
+        gap: 10px;
+        padding: 14px;
+        margin-top: 18px;
+        border-radius: 10px;
+        background: var(--mud-palette-background-gray);
+    }
+
+
+    /* ====================================================== */
+    /* Summary                                                */
+    /* ====================================================== */
+
+    .summary-section {
+        border-left: 4px solid var(--mud-palette-primary);
+    }
+
+
+    .raw-text {
+        white-space: pre-wrap;
+    }
+
+
+    @@media (max-width: 800px) {
+
+        .overview-grid {
+            grid-template-columns: 1fr;
+        }
+
+
+        .chat-bubble {
+            max-width: 85%;
+        }
+
+
+        .section-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+
+</style>
+
+
+@code {
+
+    // ========================================================
+    // Options
+    // ========================================================
+
+    private string _language = "ar";
+
+
+    // ========================================================
+    // Recording
+    // ========================================================
+
+    private bool _isRecording;
+
+    private bool _isBusy;
+
+
+    // ========================================================
+    // File
+    // ========================================================
+
+    private bool _hasSelectedFile;
+
+    private string _selectedFileName =
+        string.Empty;
+
+
+    // ========================================================
+    // UI
+    // ========================================================
+
+    private string _error =
+        string.Empty;
+
+
+    private MedicalVoiceResult? _result;
+
+
+    // ========================================================
+    // Start Recording
+    // ========================================================
+
+    private async Task StartRecording()
+    {
+        try
+        {
+            _error =
+                string.Empty;
+
+
+            _result =
+                null;
+
+
+            await JS.InvokeVoidAsync(
+                "medicalAudio.startRecording");
+
+
+            _isRecording =
+                true;
+        }
+        catch (Exception ex)
+        {
+            _isRecording =
+                false;
+
+
+            ShowError(
+                ex);
+        }
+    }
+
+
+    // ========================================================
+    // Stop
+    // ========================================================
+
+    private async Task StopRecording()
+    {
+        if (!_isRecording)
+        {
+            return;
+        }
+
+
+        try
+        {
+            _isBusy =
+                true;
+
+
+            _error =
+                string.Empty;
+
+
+            MedicalVoiceResult result =
+                await JS.InvokeAsync
+                    <MedicalVoiceResult>(
+
+                        "medicalAudio.stopRecordingAndProcess",
+
+                        "/api/medical-voice",
+
+                        _language);
+
+
+            _result =
+                result;
+
+
+            Snackbar.Add(
+                "Conversation analyzed successfully.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowError(
+                ex);
+        }
+        finally
+        {
+            _isBusy =
+                false;
+
+
+            _isRecording =
+                false;
+        }
+    }
+
+
+    // ========================================================
+    // Existing File
+    // ========================================================
+
+    private void OnAudioFileSelected(
+        InputFileChangeEventArgs e)
+    {
+        IBrowserFile file =
+            e.File;
+
+
+        _selectedFileName =
+            file.Name;
+
+
+        _hasSelectedFile =
+            true;
+
+
+        _error =
+            string.Empty;
+
+
+        _result =
+            null;
+    }
+
+
+    private async Task ProcessUploadedFile()
+    {
+        try
+        {
+            _isBusy =
+                true;
+
+
+            _error =
+                string.Empty;
+
+
+            _result =
+                null;
+
+
+            MedicalVoiceResult result =
+                await JS.InvokeAsync
+                    <MedicalVoiceResult>(
+
+                        "medicalAudio.processSelectedFile",
+
+                        "medicalAudioInput",
+
+                        "/api/medical-voice",
+
+                        _language);
+
+
+            _result =
+                result;
+
+
+            Snackbar.Add(
+                "Conversation analyzed successfully.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowError(
+                ex);
+        }
+        finally
+        {
+            _isBusy =
+                false;
+        }
+    }
+
+
+    // ========================================================
+    // Swap speakers
+    // ========================================================
+
+    private void SwapDoctorPatient()
+    {
+        if (_result == null)
+        {
+            return;
+        }
+
+
+        string oldDoctorLabel =
+            _result.DoctorSpeakerLabel;
+
+
+        _result.DoctorSpeakerLabel =
+            _result.PatientSpeakerLabel;
+
+
+        _result.PatientSpeakerLabel =
+            oldDoctorLabel;
+
+
+        foreach (
+            ConversationMessage message
+            in _result.Conversation)
+        {
+            if (message.SpeakerRole == "Doctor")
+            {
+                message.SpeakerRole =
+                    "Patient";
+            }
+            else if (
+                message.SpeakerRole == "Patient")
+            {
+                message.SpeakerRole =
+                    "Doctor";
+            }
+        }
+
+
+        Snackbar.Add(
+            "Doctor and Patient were swapped.",
+            Severity.Info);
+    }
+
+
+    // ========================================================
+    // Error
+    // ========================================================
+
+    private void ShowError(
+        Exception exception)
+    {
+        _error =
+            exception.Message;
+
+
+        Snackbar.Add(
+            "Processing failed.",
+            Severity.Error);
+    }
+
+
+    // ========================================================
+    // Chat Classes
+    // ========================================================
+
+    private static string GetChatRowClass(
+        string role)
+    {
+        return role switch
+        {
+            "Doctor" =>
+                "chat-row-doctor",
+
+            "Patient" =>
+                "chat-row-patient",
+
+            _ =>
+                "chat-row-unknown"
+        };
+    }
+
+
+    private static string GetBubbleClass(
+        string role)
+    {
+        return role switch
+        {
+            "Doctor" =>
+                "chat-bubble chat-bubble-doctor",
+
+            "Patient" =>
+                "chat-bubble chat-bubble-patient",
+
+            _ =>
+                "chat-bubble"
+        };
+    }
+
+
+    // ========================================================
+    // Icons
+    // ========================================================
+
+    private static string GetSpeakerIcon(
+        string role)
+    {
+        return role switch
+        {
+            "Doctor" =>
+                Icons.Material.Filled.MedicalServices,
+
+            "Patient" =>
+                Icons.Material.Filled.Person,
+
+            _ =>
+                Icons.Material.Filled.HelpOutline
+        };
+    }
+
+
+    private static Color GetSpeakerColor(
+        string role)
+    {
+        return role switch
+        {
+            "Doctor" =>
+                Color.Primary,
+
+            "Patient" =>
+                Color.Secondary,
+
+            _ =>
+                Color.Default
+        };
+    }
+
+
+    // ========================================================
+    // Diagnosis Status
+    // ========================================================
+
+    private static Color GetStatusColor(
+        string status)
+    {
+        return status switch
+        {
+            "Confirmed" =>
+                Color.Success,
+
+            "Suspected" =>
+                Color.Warning,
+
+            "RuledOut" =>
+                Color.Error,
+
+            "History" =>
+                Color.Info,
+
+            _ =>
+                Color.Default
+        };
+    }
+
+
+    // ========================================================
+    // Time
+    // ========================================================
+
+    private static string FormatTime(
+        double seconds)
+    {
+        TimeSpan time =
+            TimeSpan.FromSeconds(
+                seconds);
+
+
+        return
+            $"{(int)time.TotalMinutes:00}:{time.Seconds:00}";
+    }
+
+
+    // ========================================================
+    // Cleanup
+    // ========================================================
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_isRecording)
+        {
+            return;
+        }
+
+
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "medicalAudio.cancelRecording");
+        }
+        catch
+        {
+        }
+    }
+}

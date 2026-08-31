@@ -1,0 +1,580 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["AiVoice.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet" />
+    <link href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" rel="stylesheet" />
+
+</head>
+
+<body>
+    <Routes />
+    <ReconnectModal />
+    <script src="~/js/audio-tools.js"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="~/audiorecorder.js"></script>
+    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+
+</body>
+
+</html>
+
+<script>
+window.medicalAudio = (() => {
+
+    let mediaStream = null;
+    let mediaRecorder = null;
+
+    let chunks = [];
+
+    let currentMimeType = "";
+    let currentExtension = "webm";
+
+
+    // ========================================================
+    // Supported format
+    // ========================================================
+
+    function getSupportedAudioFormat() {
+
+        const formats = [
+
+            {
+                mimeType:
+                    "audio/webm;codecs=opus",
+
+                extension:
+                    "webm"
+            },
+
+            {
+                mimeType:
+                    "audio/webm",
+
+                extension:
+                    "webm"
+            },
+
+            {
+                mimeType:
+                    "audio/ogg;codecs=opus",
+
+                extension:
+                    "ogg"
+            },
+
+            {
+                mimeType:
+                    "audio/mp4",
+
+                extension:
+                    "mp4"
+            }
+        ];
+
+
+        if (!window.MediaRecorder) {
+
+            throw new Error(
+                "MediaRecorder is not supported by this browser.");
+        }
+
+
+        for (const format of formats) {
+
+            if (
+                MediaRecorder.isTypeSupported(
+                    format.mimeType)
+            ) {
+                return format;
+            }
+        }
+
+
+        return {
+            mimeType: "",
+            extension: "webm"
+        };
+    }
+
+
+    // ========================================================
+    // Start
+    // ========================================================
+
+    async function startRecording() {
+
+        if (
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia
+        ) {
+            throw new Error(
+                "Microphone recording is not supported.");
+        }
+
+
+        if (
+            mediaRecorder &&
+            mediaRecorder.state === "recording"
+        ) {
+            throw new Error(
+                "Recording is already running.");
+        }
+
+
+        const format =
+            getSupportedAudioFormat();
+
+
+        mediaStream =
+            await navigator.mediaDevices
+                .getUserMedia({
+
+                    audio: {
+
+                        echoCancellation:
+                            true,
+
+                        noiseSuppression:
+                            true,
+
+                        autoGainControl:
+                            true
+                    }
+                });
+
+
+        chunks = [];
+
+
+        if (format.mimeType) {
+
+            mediaRecorder =
+                new MediaRecorder(
+                    mediaStream,
+                    {
+                        mimeType:
+                            format.mimeType
+                    });
+        }
+        else {
+
+            mediaRecorder =
+                new MediaRecorder(
+                    mediaStream);
+        }
+
+
+        currentMimeType =
+            mediaRecorder.mimeType
+            ||
+            format.mimeType
+            ||
+            "audio/webm";
+
+
+        currentExtension =
+            getExtensionFromMimeType(
+                currentMimeType);
+
+
+        console.log(
+            "Recording Type:",
+            currentMimeType);
+
+
+        mediaRecorder.ondataavailable =
+            event => {
+
+                if (
+                    event.data &&
+                    event.data.size > 0
+                ) {
+                    chunks.push(
+                        event.data);
+                }
+            };
+
+
+        // IMPORTANT:
+        //
+        // one finalized WebM/OGG/MP4
+        // no artificial format conversion.
+
+        mediaRecorder.start();
+
+
+        return true;
+    }
+
+
+    // ========================================================
+    // Stop + Process
+    // ========================================================
+
+    async function stopRecordingAndProcess(
+        url,
+        language) {
+
+        if (
+            !mediaRecorder ||
+            mediaRecorder.state !== "recording"
+        ) {
+            throw new Error(
+                "No recording is active.");
+        }
+
+
+        const blob =
+            await stopRecorderToBlob();
+
+
+        const fileName =
+            `medical-conversation-${Date.now()}.${currentExtension}`;
+
+
+        const audioFile =
+            new File(
+                [blob],
+                fileName,
+                {
+                    type:
+                        currentMimeType
+                });
+
+
+        console.log(
+            "Audio File:",
+            audioFile.name);
+
+        console.log(
+            "Audio Size:",
+            audioFile.size);
+
+        console.log(
+            "Audio Type:",
+            audioFile.type);
+
+
+        return await postAudio(
+            audioFile,
+            url,
+            language);
+    }
+
+
+    // ========================================================
+    // Upload Existing File
+    // ========================================================
+
+    async function processSelectedFile(
+        inputId,
+        url,
+        language) {
+
+        const input =
+            document.getElementById(
+                inputId);
+
+
+        if (!input) {
+
+            throw new Error(
+                "Audio input was not found.");
+        }
+
+
+        if (
+            !input.files ||
+            input.files.length === 0
+        ) {
+            throw new Error(
+                "Please select an audio file.");
+        }
+
+
+        // IMPORTANT:
+        //
+        // لا Conversion
+        // لا Rename
+        //
+        // نفس الملف الأصلي.
+
+        const file =
+            input.files[0];
+
+
+        return await postAudio(
+            file,
+            url,
+            language);
+    }
+
+
+    // ========================================================
+    // POST ONE FILE
+    // ========================================================
+
+    async function postAudio(
+        file,
+        url,
+        language) {
+
+        if (!file ||
+            file.size === 0) {
+
+            throw new Error(
+                "Audio file is empty.");
+        }
+
+
+        const formData =
+            new FormData();
+
+
+        formData.append(
+            "file",
+            file,
+            file.name);
+
+
+        formData.append(
+            "language",
+            language || "auto");
+
+
+        const response =
+            await fetch(
+                url,
+                {
+                    method:
+                        "POST",
+
+                    body:
+                        formData
+                });
+
+
+        const responseText =
+            await response.text();
+
+
+        if (!response.ok) {
+
+            let message =
+                responseText;
+
+
+            try {
+
+                const error =
+                    JSON.parse(
+                        responseText);
+
+
+                message =
+                    error.message
+                    ||
+                    error.detail
+                    ||
+                    error.title
+                    ||
+                    responseText;
+            }
+            catch {
+
+                // Not JSON
+            }
+
+
+            throw new Error(
+                message);
+        }
+
+
+        return JSON.parse(
+            responseText);
+    }
+
+
+    // ========================================================
+    // Stop recorder
+    // ========================================================
+
+    function stopRecorderToBlob() {
+
+        return new Promise(
+            (resolve, reject) => {
+
+                if (!mediaRecorder) {
+
+                    reject(
+                        new Error(
+                            "Recorder is not initialized."));
+
+                    return;
+                }
+
+
+                mediaRecorder.onerror =
+                    event => {
+
+                        stopTracks();
+
+
+                        reject(
+                            new Error(
+                                event.error?.message
+                                ||
+                                "Recording failed."));
+                    };
+
+
+                mediaRecorder.onstop =
+                    () => {
+
+                        if (chunks.length === 0) {
+
+                            stopTracks();
+
+
+                            reject(
+                                new Error(
+                                    "No audio was recorded."));
+
+                            return;
+                        }
+
+
+                        const blob =
+                            new Blob(
+                                chunks,
+                                {
+                                    type:
+                                        currentMimeType
+                                });
+
+
+                        chunks = [];
+
+
+                        stopTracks();
+
+
+                        resolve(
+                            blob);
+                    };
+
+
+                mediaRecorder.stop();
+            });
+    }
+
+
+    // ========================================================
+    // Cancel
+    // ========================================================
+
+    function cancelRecording() {
+
+        try {
+
+            if (
+                mediaRecorder &&
+                mediaRecorder.state === "recording"
+            ) {
+                mediaRecorder.stop();
+            }
+        }
+        finally {
+
+            chunks = [];
+
+            stopTracks();
+        }
+    }
+
+
+    // ========================================================
+    // Stop Microphone
+    // ========================================================
+
+    function stopTracks() {
+
+        if (mediaStream) {
+
+            mediaStream
+                .getTracks()
+                .forEach(
+                    track =>
+                        track.stop());
+        }
+
+
+        mediaStream =
+            null;
+
+        mediaRecorder =
+            null;
+    }
+
+
+    // ========================================================
+    // MIME → Real extension
+    // ========================================================
+
+    function getExtensionFromMimeType(
+        mimeType) {
+
+        const value =
+            (mimeType || "")
+                .toLowerCase();
+
+
+        if (value.includes("webm"))
+            return "webm";
+
+
+        if (value.includes("ogg"))
+            return "ogg";
+
+
+        if (value.includes("mp4"))
+            return "mp4";
+
+
+        if (value.includes("wav"))
+            return "wav";
+
+
+        return "webm";
+    }
+
+
+    // ========================================================
+    // Public
+    // ========================================================
+
+    return {
+
+        startRecording,
+
+        stopRecordingAndProcess,
+
+        processSelectedFile,
+
+        cancelRecording
+    };
+
+})();
+</script>

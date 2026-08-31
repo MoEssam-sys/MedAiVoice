@@ -1,0 +1,587 @@
+﻿@page "/sss"
+
+@rendermode InteractiveServer
+
+@using AiVoice.Models
+@using Microsoft.AspNetCore.Components.Forms
+
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+@implements IAsyncDisposable
+
+
+<MudContainer MaxWidth="MaxWidth.Medium"
+              Class="mt-8">
+
+    <MudPaper Elevation="2"
+              Class="pa-6">
+
+        <!-- ================================ -->
+        <!-- Title                            -->
+        <!-- ================================ -->
+
+        <MudText Typo="Typo.h5"
+                 GutterBottom="true">
+
+            Diagnosis Voice Input
+
+        </MudText>
+
+
+        <MudText Typo="Typo.body2"
+                 Color="Color.Secondary"
+                 Class="mb-5">
+
+            Speak the diagnosis or upload
+            an existing audio file.
+
+        </MudText>
+
+
+        <!-- ================================ -->
+        <!-- Diagnosis                        -->
+        <!-- ================================ -->
+
+        <MudTextField T="string"
+                      @bind-Value="_diagnosis"
+                      Label="Diagnosis"
+                      Variant="Variant.Outlined"
+                      Lines="3"
+                      FullWidth="true"
+                      Immediate="true"
+                      Class="mb-5" />
+
+
+        <!-- ================================ -->
+        <!-- Language                         -->
+        <!-- ================================ -->
+
+        <MudSelect T="string"
+                   @bind-Value="_language"
+                   Label="Spoken Language"
+                   Variant="Variant.Outlined"
+                   FullWidth="true"
+                   Class="mb-3">
+
+            <MudSelectItem T="string"
+                           Value="@("auto")">
+
+                Auto - Arabic + English
+
+            </MudSelectItem>
+
+
+            <MudSelectItem T="string"
+                           Value="@("en")">
+
+                English
+
+            </MudSelectItem>
+
+
+            <MudSelectItem T="string"
+                           Value="@("ar")">
+
+                Arabic
+
+            </MudSelectItem>
+
+        </MudSelect>
+
+
+        <!-- ================================ -->
+        <!-- English                          -->
+        <!-- ================================ -->
+
+        <MudSwitch T="bool"
+                   @bind-Value="_englishOnly"
+                   Color="Color.Primary"
+                   Label="Final Diagnosis in English"
+                   Class="mb-5" />
+
+
+        <!-- ================================ -->
+        <!-- Microphone                       -->
+        <!-- ================================ -->
+
+        <MudText Typo="Typo.subtitle1"
+                 Class="mb-2">
+
+            Record Diagnosis
+
+        </MudText>
+
+
+        <MudStack Row="true"
+                  Spacing="2"
+                  AlignItems="AlignItems.Center"
+                  Class="mb-5">
+
+            @if (!_isRecording)
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Mic"
+                           Disabled="_isBusy"
+                           OnClick="StartRecording">
+
+                    Start Recording
+
+                </MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.Stop"
+                           Disabled="_isBusy"
+                           OnClick="StopRecording">
+
+                    Stop & Transcribe
+
+                </MudButton>
+
+
+                <MudChip T="string"
+                         Color="Color.Error"
+                         Variant="Variant.Filled">
+
+                    Recording...
+
+                </MudChip>
+            }
+
+        </MudStack>
+
+
+        <MudDivider Class="mb-5" />
+
+
+        <!-- ================================ -->
+        <!-- Upload                           -->
+        <!-- ================================ -->
+
+        <MudText Typo="Typo.subtitle1"
+                 Class="mb-2">
+
+            Upload Audio File
+
+        </MudText>
+
+
+        <InputFile id="audioFileInput"
+                   OnChange="OnAudioSelected"
+                   accept=".webm,.mp3,.wav,.m4a,.mp4,.ogg,.flac,.mpeg,.mpga" />
+
+
+        @if (!string.IsNullOrWhiteSpace(
+                _selectedFileName))
+        {
+            <MudAlert Severity="Severity.Info"
+                      Variant="Variant.Outlined"
+                      Class="mt-3">
+
+                <MudText Typo="Typo.body2">
+
+                    @_selectedFileName
+
+                </MudText>
+
+
+                <MudText Typo="Typo.caption">
+
+                    @FormatFileSize(
+                        _selectedFileSize)
+
+                </MudText>
+
+            </MudAlert>
+        }
+
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.UploadFile"
+                   Disabled="@(
+                   _isBusy ||
+                   _isRecording ||
+                   string.IsNullOrWhiteSpace(
+                       _selectedFileName))"
+                   OnClick="TranscribeUploadedFile"
+                   Class="mt-3">
+
+            Transcribe File
+
+        </MudButton>
+
+
+        <!-- ================================ -->
+        <!-- Loading                          -->
+        <!-- ================================ -->
+        @if (_isBusy)
+        {
+            <MudProgressLinear Indeterminate="true"
+                               Color="Color.Primary"
+                               Class="mt-5" />
+
+
+            <MudText Typo="Typo.caption"
+                     Class="mt-2">
+
+                Processing audio...
+
+            </MudText>
+        }
+
+
+        <!-- ================================ -->
+        <!-- Error                            -->
+        <!-- ================================ -->
+        @if (!string.IsNullOrWhiteSpace(
+                        _errorMessage))
+        {
+            <MudAlert Severity="Severity.Error"
+                      Class="mt-5">
+
+                @_errorMessage
+
+            </MudAlert>
+        }
+
+
+        <!-- ================================ -->
+        <!-- Original Transcript              -->
+        <!-- ================================ -->
+        @if (_englishOnly &&
+                     !string.IsNullOrWhiteSpace(
+                         _originalTranscript))
+        {
+            <MudPaper Elevation="0"
+                      Outlined="true"
+                      Class="pa-4 mt-5">
+
+                <MudText Typo="Typo.caption"
+                         Color="Color.Secondary">
+
+                    Original Transcription
+
+                </MudText>
+
+
+                <MudText Typo="Typo.body1"
+                         Class="mt-2">
+
+                    @_originalTranscript
+
+                </MudText>
+
+            </MudPaper>
+        }
+
+    </MudPaper>
+
+</MudContainer>
+
+
+@code {
+
+    // ============================================
+    // Result
+    // ============================================
+
+    private string _diagnosis =
+        string.Empty;
+
+
+    private string _originalTranscript =
+        string.Empty;
+
+
+    // ============================================
+    // Options
+    // ============================================
+
+    private string _language =
+        "auto";
+
+
+    private bool _englishOnly =
+        true;
+
+
+    // ============================================
+    // State
+    // ============================================
+
+    private bool _isRecording;
+
+
+    private bool _isBusy;
+
+
+    private string _errorMessage =
+        string.Empty;
+
+
+    // ============================================
+    // Selected File
+    // ============================================
+
+    private string _selectedFileName =
+        string.Empty;
+
+
+    private long _selectedFileSize;
+
+
+    // ============================================
+    // Start Recording
+    // ============================================
+
+    private async Task StartRecording()
+    {
+        try
+        {
+            _errorMessage =
+                string.Empty;
+
+
+            _originalTranscript =
+                string.Empty;
+
+
+            await JS.InvokeVoidAsync(
+                "audioTools.startRecording");
+
+
+            _isRecording =
+                true;
+        }
+        catch (Exception ex)
+        {
+            _isRecording =
+                false;
+
+
+            ShowError(ex);
+        }
+    }
+
+
+    // ============================================
+    // Stop Recording
+    // ============================================
+
+    private async Task StopRecording()
+    {
+        if (!_isRecording)
+        {
+            return;
+        }
+
+
+        try
+        {
+            _isBusy =
+                true;
+
+
+            _errorMessage =
+                string.Empty;
+
+
+            TranscriptionResponse result =
+                await JS.InvokeAsync
+                    <TranscriptionResponse>(
+                        "audioTools.stopRecordingAndTranscribe",
+
+                        "/api/transcription",
+
+                        _language,
+
+                        _englishOnly);
+
+
+            SetResult(
+                result);
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+        finally
+        {
+            _isBusy =
+                false;
+
+
+            _isRecording =
+                false;
+        }
+    }
+
+
+    // ============================================
+    // File Selected
+    // ============================================
+
+    private void OnAudioSelected(
+        InputFileChangeEventArgs e)
+    {
+        IBrowserFile file =
+            e.File;
+
+
+        _selectedFileName =
+            file.Name;
+
+
+        _selectedFileSize =
+            file.Size;
+
+
+        _errorMessage =
+            string.Empty;
+
+
+        _originalTranscript =
+            string.Empty;
+    }
+
+
+    // ============================================
+    // Upload File
+    // ============================================
+
+    private async Task
+        TranscribeUploadedFile()
+    {
+        try
+        {
+            _isBusy =
+                true;
+
+
+            _errorMessage =
+                string.Empty;
+
+
+            TranscriptionResponse result =
+                await JS.InvokeAsync
+                    <TranscriptionResponse>(
+                        "audioTools.transcribeSelectedFile",
+
+                        "audioFileInput",
+
+                        "/api/transcription",
+
+                        _language,
+
+                        _englishOnly);
+
+
+            SetResult(
+                result);
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+        finally
+        {
+            _isBusy =
+                false;
+        }
+    }
+
+
+    // ============================================
+    // Set Result
+    // ============================================
+
+    private void SetResult(
+        TranscriptionResponse result)
+    {
+        _originalTranscript =
+            result.OriginalTranscript;
+
+
+        _diagnosis =
+            result.Text;
+
+
+        Snackbar.Add(
+            "Diagnosis transcribed successfully.",
+            Severity.Success);
+    }
+
+
+    // ============================================
+    // Error
+    // ============================================
+
+    private void ShowError(
+        Exception exception)
+    {
+        _errorMessage =
+            exception.Message;
+
+
+        Snackbar.Add(
+            "Transcription failed.",
+            Severity.Error);
+    }
+
+
+    // ============================================
+    // File Size
+    // ============================================
+
+    private static string
+        FormatFileSize(
+            long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return
+                $"{bytes} B";
+        }
+
+
+        if (bytes <
+            1024 * 1024)
+        {
+            return
+                $"{bytes / 1024.0:F1} KB";
+        }
+
+
+        return
+            $"{bytes / 1024.0 / 1024.0:F1} MB";
+    }
+
+
+    // ============================================
+    // Cleanup
+    // ============================================
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_isRecording)
+        {
+            return;
+        }
+
+
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "audioTools.cancelRecording");
+        }
+        catch
+        {
+            // Component is closing.
+        }
+    }
+}
